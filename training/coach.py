@@ -21,6 +21,7 @@ from models.latent_codes_pool import LatentCodesPool
 from models.discriminator import LatentCodesDiscriminator
 from models.encoders.psp_encoders import ProgressiveStage
 from training.ranger import Ranger
+from training.byol import BYOL
 
 random.seed(0)
 torch.manual_seed(0)
@@ -28,14 +29,22 @@ torch.manual_seed(0)
 
 class Coach:
     def __init__(self, opts, prev_train_checkpoint=None):
-        self.opts = opts
-
-        self.global_step = 0
-
         self.device = 'cuda:0'
         self.opts.device = self.device
         # Initialize network
         self.net = pSp(self.opts).to(self.device)
+        
+        # initialize BYOL module
+        self.byol = BYOL(
+            self.net,
+            image_size = 1024, # size of random-resized-crop # 256,
+            hidden_layer = -1,  # the default was 'avgpool' for resnet-50,
+            use_momentum = False       # turn off momentum in the target encoder
+            )
+
+        self.opts = opts
+
+        self.global_step = 0
 
         # Initialize loss
         if self.opts.lpips_lambda > 0:
@@ -46,6 +55,7 @@ class Coach:
             else:
                 self.id_loss = moco_loss.MocoLoss(opts).to(self.device).eval()
         self.mse_loss = nn.MSELoss().to(self.device).eval()
+        self.byol_loss = self.byol
 
         # Initialize optimizer
         self.optimizer = self.configure_optimizers()
@@ -230,6 +240,13 @@ class Coach:
         return train_dataset, test_dataset
 
     def calc_loss(self, x, y, y_hat, latent):
+        """
+        Args:
+            x: input image
+            y: target image
+            y_hat: reconstructed target image
+            latent: w's
+        """
         loss_dict = {}
         loss = 0.0
         id_logs = None
@@ -273,6 +290,10 @@ class Coach:
             loss_lpips = self.lpips_loss(y_hat, y)
             loss_dict['loss_lpips'] = float(loss_lpips)
             loss += loss_lpips * self.opts.lpips_lambda
+        if self.opts.byol_lambda > 0:
+            loss_byol = self.byol_loss(x)
+            loss_dict['loss_byol'] = float(loss_byol)
+            loss += loss_byol * self.opts.byol_lambda
         loss_dict['loss'] = float(loss)
         return loss, loss_dict, id_logs
 
