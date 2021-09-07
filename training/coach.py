@@ -29,6 +29,10 @@ torch.manual_seed(0)
 
 class Coach:
     def __init__(self, opts, prev_train_checkpoint=None):
+        self.opts = opts
+
+        self.global_step = 0
+        
         self.device = 'cuda:0'
         self.opts.device = self.device
         # Initialize network
@@ -37,14 +41,10 @@ class Coach:
         # initialize BYOL module
         self.byol = BYOL(
             self.net,
-            image_size = 1024, # size of random-resized-crop # 256,
+            image_size = 256, # size of random-resized-crop
             hidden_layer = -1,  # the default was 'avgpool' for resnet-50,
             use_momentum = False       # turn off momentum in the target encoder
             )
-
-        self.opts = opts
-
-        self.global_step = 0
 
         # Initialize loss
         if self.opts.lpips_lambda > 0:
